@@ -58,6 +58,27 @@ async function run() {
             res.send(result)
         });
 
+        // GET bookings by userId or vendorId
+        app.get('/api/bookings', async (req, res) => {
+            try {
+                const { userId, vendorId } = req.query;
+                const query = {};
+                if (userId) query.userId = userId;
+                if (vendorId) query.vendorId = vendorId;
+
+                if (Object.keys(query).length === 0) {
+                    return res.status(400).json({ error: 'userId or vendorId is required' });
+                }
+
+                const bookings = await bookingCollection.find(query).toArray();
+                res.send(bookings);
+            } catch (error) {
+                res.status(500).json({ error: error.message });
+            }
+        });
+
+        // ---------------------------
+
         //add ticket api
         app.post('/api/tickets', async (req, res) => {
             const ticket = req.body
@@ -71,6 +92,50 @@ async function run() {
                 const booking = req.body;
                 const result = await bookingCollection.insertOne(booking);
                 res.status(201).json(result);
+            } catch (error) {
+                res.status(500).json({ error: error.message });
+            }
+        });
+
+        // ---------------------------
+
+        // TICKET STATUS UPDATE (Admin Approve/Reject)
+        app.put('/api/tickets/:id/status', async (req, res) => {
+            try {
+                const { id } = req.params;
+                const { status } = req.body;
+                if (!status) {
+                    return res.status(400).json({ error: 'Status is required' });
+                }
+                const result = await ticketCollection.updateOne(
+                    { _id: new ObjectId(id) },
+                    { $set: { status } }
+                );
+                if (result.matchedCount === 0) {
+                    return res.status(404).json({ error: 'Ticket not found' });
+                }
+                res.json({ success: true, message: `Ticket ${status} successfully` });
+            } catch (error) {
+                res.status(500).json({ error: error.message });
+            }
+        })
+
+        // PUT - Update booking status (Vendor Accept/Reject)
+        app.put('/api/bookings/:id/status', async (req, res) => {
+            try {
+                const { id } = req.params;
+                const { status } = req.body;
+                if (!status) {
+                    return res.status(400).json({ error: 'Status is required' });
+                }
+                const result = await bookingCollection.updateOne(
+                    { _id: new ObjectId(id) },
+                    { $set: { status } }
+                );
+                if (result.matchedCount === 0) {
+                    return res.status(404).json({ error: 'Booking not found' });
+                }
+                res.json({ success: true, message: `Booking ${status} successfully` });
             } catch (error) {
                 res.status(500).json({ error: error.message });
             }
