@@ -121,6 +121,33 @@ async function run() {
             }
         })
 
+        // GET /api/transactions
+        app.get('/api/transactions', async (req, res) => {
+            try {
+                const { userId } = req.query;
+                if (!userId) {
+                    return res.status(400).json({ error: 'userId is required' });
+                }
+
+       
+                const bookings = await bookingCollection.find({
+                    userId: userId,
+                    status: 'paid'
+                }).sort({ paidAt: -1 }).toArray();
+
+                const transactions = bookings.map(booking => ({
+                    transactionId: booking.paymentIntentId || booking._id,
+                    amount: booking.totalPrice,
+                    ticketTitle: booking.ticketTitle,
+                    paymentDate: booking.paidAt || booking.createdAt,
+                }));
+
+                res.send(transactions);
+            } catch (error) {
+                res.status(500).json({ error: error.message });
+            }
+        });
+
 
         // Vendor Stats API
         app.get('/api/vendor/stats', async (req, res) => {
@@ -204,6 +231,40 @@ async function run() {
                 const booking = req.body;
                 const result = await bookingCollection.insertOne(booking);
                 res.status(201).json(result);
+            } catch (error) {
+                res.status(500).json({ error: error.message });
+            }
+        })
+
+        app.post('/api/confirm-payment', async (req, res) => {
+            try {
+                const { sessionId } = req.body;
+                const session = await stripe.checkout.sessions.retrieve(sessionId);
+                const bookingId = session.metadata.bookingId;
+                const paymentIntentId = session.payment_intent; // Stripe payment intent ID
+
+
+                await bookingCollection.updateOne(
+                    { _id: new ObjectId(bookingId) },
+                    {
+                        $set: {
+                            status: 'paid',
+                            paymentIntentId: paymentIntentId,
+                            paidAt: new Date()
+                        }
+                    }
+                );
+
+
+                const booking = await bookingCollection.findOne({ _id: new ObjectId(bookingId) });
+                if (booking) {
+                    await ticketCollection.updateOne(
+                        { _id: new ObjectId(booking.ticketId) },
+                        { $inc: { ticketQuantity: -booking.bookingQuantity } }
+                    );
+                }
+
+                res.json({ success: true });
             } catch (error) {
                 res.status(500).json({ error: error.message });
             }
