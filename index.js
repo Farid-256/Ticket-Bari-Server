@@ -129,7 +129,7 @@ async function run() {
                     return res.status(400).json({ error: 'userId is required' });
                 }
 
-       
+
                 const bookings = await bookingCollection.find({
                     userId: userId,
                     status: 'paid'
@@ -212,6 +212,21 @@ async function run() {
                 });
             } catch (error) {
                 console.error('Vendor stats error:', error);
+                res.status(500).json({ error: error.message });
+            }
+        })
+
+        // Latest Tickets (just approved, latest 6-8)
+        app.get('/api/tickets/latest', async (req, res) => {
+            try {
+                const limit = parseInt(req.query.limit) || 8;
+                const tickets = await ticketCollection
+                    .find({ status: 'approved' })
+                    .sort({ createdAt: -1 })
+                    .limit(limit)
+                    .toArray();
+                res.send(tickets);
+            } catch (error) {
                 res.status(500).json({ error: error.message });
             }
         });
@@ -360,8 +375,6 @@ async function run() {
             try {
                 const { id } = req.params;
                 const { isAdvertised } = req.body; // true বা false
-
-                // আগে অ্যাডভার্টাইজড টিকেট কাউন্ট চেক করো (যদি true করতে চায়)
                 if (isAdvertised === true) {
                     const advertisedCount = await ticketCollection.countDocuments({ isAdvertised: true });
                     if (advertisedCount >= 6) {
@@ -384,8 +397,86 @@ async function run() {
             } catch (error) {
                 res.status(500).json({ error: error.message });
             }
+        })
+
+
+        // VENDOR: UPDATE TICKET DETAILS (CLEAN)
+        app.put('/api/tickets/:id', async (req, res) => {
+            try {
+                const { id } = req.params;
+                const updates = req.body;
+                const { vendorId, status, ...updateFields } = updates; // status বাদ
+
+    
+                const existing = await ticketCollection.findOne({ _id: new ObjectId(id) });
+                if (!existing) {
+                    return res.status(404).json({ error: 'Ticket not found' });
+                }
+
+
+                if (existing.status === 'rejected') {
+                    return res.status(403).json({ error: 'Rejected tickets cannot be updated' });
+                }
+
+
+                if (existing.vendorId !== vendorId) {
+                    return res.status(403).json({ error: 'You can only update your own tickets' });
+                }
+
+
+                const result = await ticketCollection.updateOne(
+                    { _id: new ObjectId(id) },
+                    { $set: updateFields }
+                );
+
+                if (result.matchedCount === 0) {
+                    return res.status(404).json({ error: 'Ticket not found' });
+                }
+
+                const updatedTicket = await ticketCollection.findOne({ _id: new ObjectId(id) });
+                res.json({ success: true, message: 'Ticket updated successfully', ticket: updatedTicket });
+            } catch (error) {
+                console.error('Update error:', error);
+                res.status(500).json({ error: error.message });
+            }
         });
 
+        // ----------------------------------------------------------------------
+
+        // VENDOR: DELETE TICKET
+        app.delete('/api/tickets/:id', async (req, res) => {
+            try {
+                const { id } = req.params;
+                const { vendorId } = req.query;
+
+
+                const existing = await ticketCollection.findOne({ _id: new ObjectId(id) });
+                if (!existing) {
+                    return res.status(404).json({ error: 'Ticket not found' });
+                }
+
+
+                if (existing.status === 'rejected') {
+                    return res.status(403).json({ error: 'Rejected tickets cannot be deleted' });
+                }
+
+
+                if (existing.vendorId !== vendorId) {
+                    return res.status(403).json({ error: 'You can only delete your own tickets' });
+                }
+
+
+                const result = await ticketCollection.deleteOne({ _id: new ObjectId(id) });
+
+                if (result.deletedCount === 0) {
+                    return res.status(404).json({ error: 'Ticket not found' });
+                }
+
+                res.json({ success: true, message: 'Ticket deleted successfully' });
+            } catch (error) {
+                res.status(500).json({ error: error.message });
+            }
+        });
 
 
 
