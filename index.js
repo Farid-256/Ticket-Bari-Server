@@ -31,19 +31,54 @@ async function run() {
         const bookingCollection = database.collection('bookings');
         const userCollection = database.collection('user');
 
-        //add ticket api get
+        //ticket related api get
         app.get('/api/tickets', async (req, res) => {
             try {
                 const query = {};
-                if (req.query.vendorId) {
-                    query.vendorId = req.query.vendorId;
-                }
-                if (req.query.status) {
-                    query.status = req.query.status;
+
+                // Vendor filter (if needed)
+                if (req.query.vendorId) query.vendorId = req.query.vendorId;
+                if (req.query.status) query.status = req.query.status;
+
+                // 🔍 Search (fromLocation / toLocation / ticketTitle)
+                if (req.query.search) {
+                    const searchRegex = new RegExp(req.query.search, 'i');
+                    query.$or = [
+                        { fromLocation: searchRegex },
+                        { toLocation: searchRegex },
+                        { ticketTitle: searchRegex }
+                    ];
                 }
 
-                const result = await ticketCollection.find(query).toArray();
-                res.send(result);
+                // 🔍 Filter by transport type
+                if (req.query.transportType) {
+                    query.transportType = req.query.transportType;
+                }
+
+                // 📌 Pagination
+                const page = parseInt(req.query.page) || 1;
+                const limit = parseInt(req.query.limit) || 6;
+                const skip = (page - 1) * limit;
+
+                // 📌 Sort
+                let sort = {};
+                if (req.query.sort === 'price_asc') sort = { price: 1 };
+                else if (req.query.sort === 'price_desc') sort = { price: -1 };
+                else sort = { createdAt: -1 };
+
+                const total = await ticketCollection.countDocuments(query);
+                const tickets = await ticketCollection.find(query)
+                    .sort(sort)
+                    .skip(skip)
+                    .limit(limit)
+                    .toArray();
+
+                res.send({
+                    tickets,
+                    total,
+                    page,
+                    totalPages: Math.ceil(total / limit),
+                });
             } catch (error) {
                 res.status(500).json({ error: error.message });
             }
@@ -407,7 +442,7 @@ async function run() {
                 const updates = req.body;
                 const { vendorId, status, ...updateFields } = updates; // status বাদ
 
-    
+
                 const existing = await ticketCollection.findOne({ _id: new ObjectId(id) });
                 if (!existing) {
                     return res.status(404).json({ error: 'Ticket not found' });
