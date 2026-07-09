@@ -40,27 +40,30 @@ async function run() {
                 if (req.query.vendorId) query.vendorId = req.query.vendorId;
                 if (req.query.status) query.status = req.query.status;
 
-                // 🔍 Search (fromLocation / toLocation / ticketTitle)
-                if (req.query.search) {
-                    const searchRegex = new RegExp(req.query.search, 'i');
-                    query.$or = [
-                        { fromLocation: searchRegex },
-                        { toLocation: searchRegex },
-                        { ticketTitle: searchRegex }
-                    ];
+                if (req.query.fromLocation) {
+                    query.fromLocation = {
+                        $regex: req.query.fromLocation,
+                        $options: "i",
+                    };
                 }
 
-                // 🔍 Filter by transport type
+                if (req.query.toLocation) {
+                    query.toLocation = {
+                        $regex: req.query.toLocation,
+                        $options: "i",
+                    };
+                }
+
                 if (req.query.transportType) {
                     query.transportType = req.query.transportType;
                 }
 
-                // 📌 Pagination
+                //  Pagination
                 const page = parseInt(req.query.page) || 1;
                 const limit = parseInt(req.query.limit) || 6;
                 const skip = (page - 1) * limit;
 
-                // 📌 Sort
+                //  Sort
                 let sort = {};
                 if (req.query.sort === 'price_asc') sort = { price: 1 };
                 else if (req.query.sort === 'price_desc') sort = { price: -1 };
