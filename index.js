@@ -37,7 +37,7 @@ async function run() {
         const ticketCollection = database.collection('tickets')
         const bookingCollection = database.collection('bookings');
         const userCollection = database.collection('user');
-        const sessonCollection = database.collection('sesson')
+        const sessionCollection = database.collection('session')
 
         //jwt5
         const verifyToken = async (req, res, next) => {
@@ -54,7 +54,7 @@ async function run() {
             }
 
             const query = { token: token }
-            const session = await sessonCollection.findOne(query)
+            const session = await sessionCollection.findOne(query)
 
             const userId = session.userId
             const userQuery = {
@@ -68,7 +68,7 @@ async function run() {
 
         // must be used after verifyToken middleware
         const verifyUser = async (req, res, next) => {
-            if (req.user?.role !== 'seeker') {
+            if (req.user?.role !== 'user') {
                 return res.status(403).send({ message: 'forbidden access' })
             }
             next();
@@ -76,7 +76,7 @@ async function run() {
 
         // must be used after verifyToken middleware
         const verifyVendor = async (req, res, next) => {
-            if (req.user?.role !== 'recruiter') {
+            if (req.user?.role !== 'vendor') {
                 return res.status(403).send({ message: 'forbidden access' })
             }
             next();
@@ -91,40 +91,33 @@ async function run() {
         }
 
 
-
+        // -------------------------------------------------------------------------------------
         //ticket related api get
-        app.get('/api/tickets', verifyToken, async (req, res) => {
+        app.get('/api/tickets', async (req, res) => {
             try {
-                const query = {};
+                const query = { status: 'approved' }; // ডিফল্ট শুধু approved
 
-                // Vendor filter (if needed)
-                if (req.query.vendorId) query.vendorId = req.query.vendorId;
-                if (req.query.status) query.status = req.query.status;
-
+                
                 if (req.query.fromLocation) {
-                    query.fromLocation = {
-                        $regex: req.query.fromLocation,
-                        $options: "i",
-                    };
+                    query.fromLocation = { $regex: req.query.fromLocation, $options: 'i' };
                 }
-
                 if (req.query.toLocation) {
-                    query.toLocation = {
-                        $regex: req.query.toLocation,
-                        $options: "i",
-                    };
+                    query.toLocation = { $regex: req.query.toLocation, $options: 'i' };
                 }
-
                 if (req.query.transportType) {
                     query.transportType = req.query.transportType;
                 }
+           
+                if (req.query.status) {
+                    query.status = req.query.status;
+                }
 
-                //  Pagination
+                // pagenation
                 const page = parseInt(req.query.page) || 1;
                 const limit = parseInt(req.query.limit) || 6;
                 const skip = (page - 1) * limit;
 
-                //  Sort
+                // sort
                 let sort = {};
                 if (req.query.sort === 'price_asc') sort = { price: 1 };
                 else if (req.query.sort === 'price_desc') sort = { price: -1 };
@@ -148,6 +141,24 @@ async function run() {
             }
         });
 
+        // pending, approved, rejected
+        app.get('/api/vendor/tickets', verifyToken, verifyVendor, async (req, res) => {
+            try {
+                const vendorId = req.user._id.toString(); // লগইন করা ভেন্ডরের আইডি
+                const query = { vendorId: vendorId };
+
+                // status
+                if (req.query.status) {
+                    query.status = req.query.status;
+                }
+
+                const tickets = await ticketCollection.find(query).toArray();
+                res.send(tickets);
+            } catch (error) {
+                res.status(500).json({ error: error.message });
+            }
+        });
+
         //details page
         app.get('/api/allTickets/:id', async (req, res) => {
             const id = req.params.id
@@ -159,12 +170,19 @@ async function run() {
         });
 
         // GET bookings by userId or vendorId
-        app.get('/api/bookings', async (req, res) => {
+        app.get('/api/bookings', verifyToken, async (req, res) => {
             try {
                 const { userId, vendorId } = req.query;
                 const query = {};
                 if (userId) query.userId = userId;
                 if (vendorId) query.vendorId = vendorId;
+
+                if (userId && req.user._id.toString() !== userId) {
+                    return res.status(403).json({ error: 'Forbidden' });
+                }
+                if (vendorId && req.user._id.toString() !== vendorId) {
+                    return res.status(403).json({ error: 'Forbidden' });
+                }
 
                 if (Object.keys(query).length === 0) {
                     return res.status(400).json({ error: 'userId or vendorId is required' });
@@ -175,22 +193,26 @@ async function run() {
             } catch (error) {
                 res.status(500).json({ error: error.message });
             }
-        })
+        });
 
-        app.get('/api/bookings/:id', async (req, res) => {
+        app.get('/api/bookings/:id', verifyToken, async (req, res) => {
             try {
                 const { id } = req.params;
                 const booking = await bookingCollection.findOne({ _id: new ObjectId(id) });
                 if (!booking) return res.status(404).json({ error: 'Booking not found' });
+
+                if (booking.userId !== req.user._id.toString() && booking.vendorId !== req.user._id.toString()) {
+                    return res.status(403).json({ error: 'Forbidden' });
+                }
                 res.send(booking);
             } catch (error) {
                 res.status(500).json({ error: error.message });
             }
-        })
+        });
 
 
         //get all user (just admin)
-        app.get('/api/users', async (req, res) => {
+        app.get('/api/users', verifyToken, verifyAdmin, async (req, res) => {
             try {
                 const users = await userCollection.find({}).toArray();
                 const safeUsers = users.map(({ password, ...rest }) => rest);
@@ -201,7 +223,7 @@ async function run() {
         })
 
         // 1.all approuved ticket
-        app.get('/api/tickets/approved', async (req, res) => {
+        app.get('/api/tickets/approved', verifyToken, verifyAdmin, async (req, res) => {
             try {
                 const tickets = await ticketCollection.find({ status: 'approved' }).toArray();
                 res.send(tickets);
@@ -221,11 +243,11 @@ async function run() {
         })
 
         // GET /api/transactions
-        app.get('/api/transactions', async (req, res) => {
+        app.get('/api/transactions', verifyToken, verifyUser, async (req, res) => {
             try {
                 const { userId } = req.query;
-                if (!userId) {
-                    return res.status(400).json({ error: 'userId is required' });
+                if (userId !== req.user._id.toString()) {
+                    return res.status(403).json({ error: 'Forbidden' });
                 }
 
 
@@ -249,11 +271,11 @@ async function run() {
 
 
         // Vendor Stats API
-        app.get('/api/vendor/stats', async (req, res) => {
+        app.get('/api/vendor/stats', verifyToken, verifyVendor, async (req, res) => {
             try {
                 const { vendorId } = req.query;
-                if (!vendorId) {
-                    return res.status(400).json({ error: 'vendorId is required' });
+                if (vendorId !== req.user._id.toString()) {
+                    return res.status(403).json({ error: 'Forbidden' });
                 }
 
                 // 1. Total Revenue (from paid bookings)
@@ -333,14 +355,14 @@ async function run() {
         // ---------------------------
 
         //add ticket api
-        app.post('/api/tickets', async (req, res) => {
+        app.post('/api/tickets', verifyToken, verifyVendor, async (req, res) => {
             const ticket = req.body
             const result = await ticketCollection.insertOne(ticket)
             res.send(result)
         })
 
         // POST - create booking
-        app.post('/api/bookings', async (req, res) => {
+        app.post('/api/bookings', verifyToken, verifyUser, async (req, res) => {
             try {
                 const booking = req.body;
                 const result = await bookingCollection.insertOne(booking);
@@ -350,7 +372,7 @@ async function run() {
             }
         })
 
-        app.post('/api/confirm-payment', async (req, res) => {
+        app.post('/api/confirm-payment', verifyToken, async (req, res) => {
             try {
                 const { sessionId } = req.body;
                 const session = await stripe.checkout.sessions.retrieve(sessionId);
@@ -387,7 +409,7 @@ async function run() {
         // ---------------------------
 
         // TICKET STATUS UPDATE (Admin Approve/Reject)
-        app.put('/api/tickets/:id/status', logger, verifyToken, async (req, res) => {
+        app.put('/api/tickets/:id/status', logger, verifyToken, verifyAdmin, async (req, res) => {
             try {
                 const { id } = req.params;
                 const { status } = req.body;
@@ -408,7 +430,7 @@ async function run() {
         })
 
         // PUT - Update booking status (Vendor Accept/Reject)
-        app.put('/api/bookings/:id/status', async (req, res) => {
+        app.put('/api/bookings/:id/status', verifyToken, verifyVendor, async (req, res) => {
             try {
                 const { id } = req.params;
                 const { status } = req.body;
@@ -429,7 +451,7 @@ async function run() {
         })
 
         // 2.user role update
-        app.put('/api/users/:id/role', async (req, res) => {
+        app.put('/api/users/:id/role', verifyToken, verifyAdmin, async (req, res) => {
             try {
                 const { id } = req.params;
                 const { role } = req.body;
@@ -449,12 +471,12 @@ async function run() {
         });
 
         // 3.fraud Vendor marking
-        app.put('/api/users/:id/fraud', async (req, res) => {
+        app.put('/api/users/:id/fraud', verifyToken, verifyAdmin, async (req, res) => {
             try {
                 const { id } = req.params;
                 const result = await userCollection.updateOne(
                     { _id: new ObjectId(id) },
-                    { $set: { isFraud: true, role: 'fraud' } } // রোল fraud সেট করো
+                    { $set: { isFraud: true, role: 'fraud' } }
                 );
                 if (result.matchedCount === 0) {
                     return res.status(404).json({ error: 'User not found' });
@@ -470,10 +492,10 @@ async function run() {
         })
 
         //advice status toggle
-        app.put('/api/tickets/:id/advertise', async (req, res) => {
+        app.put('/api/tickets/:id/advertise', verifyToken, verifyAdmin, async (req, res) => {
             try {
                 const { id } = req.params;
-                const { isAdvertised } = req.body; // true বা false
+                const { isAdvertised } = req.body;
                 if (isAdvertised === true) {
                     const advertisedCount = await ticketCollection.countDocuments({ isAdvertised: true });
                     if (advertisedCount >= 6) {
@@ -500,7 +522,7 @@ async function run() {
 
 
         // VENDOR: UPDATE TICKET DETAILS (CLEAN)
-        app.put('/api/tickets/:id', async (req, res) => {
+        app.put('/api/tickets/:id', verifyToken, verifyVendor, async (req, res) => {
             try {
                 const { id } = req.params;
                 const updates = req.body;
@@ -543,7 +565,7 @@ async function run() {
         // ----------------------------------------------------------------------
 
         // VENDOR: DELETE TICKET
-        app.delete('/api/tickets/:id', async (req, res) => {
+        app.delete('/api/tickets/:id', verifyToken, verifyVendor, async (req, res) => {
             try {
                 const { id } = req.params;
                 const { vendorId } = req.query;
