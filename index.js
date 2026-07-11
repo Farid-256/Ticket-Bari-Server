@@ -29,6 +29,7 @@ const logger = (req, res, next) => {
     next();
 }
 
+
 async function run() {
     try {
         await client.connect();
@@ -36,9 +37,46 @@ async function run() {
         const ticketCollection = database.collection('tickets')
         const bookingCollection = database.collection('bookings');
         const userCollection = database.collection('user');
+        const sessonCollection = database.collection('sesson')
+
+        //jwt5
+        const verifyToken = async (req, res, next) => {
+
+            //jwt7
+            const authHeader = req.headers?.authorization
+            if (!authHeader) {
+                return res.status(401).send({ message: 'unauthorized access' })
+            }
+
+            const token = authHeader.split(' ')[1]
+            if (!token) {
+                return res.status(401).send({ message: 'unauthorized access' })
+            }
+
+            const query = { token: token }
+            const session = await sessonCollection.findOne(query)
+
+            const userId = session.userId
+            const userQuery = {
+                _id: userId
+            }
+            const user = await userCollection.findOne(userQuery)
+
+            req.user = user
+            next()
+        }
+
+        // must be used after verifyToken middleware
+        const verifyUser = async (req, res, next) => {
+            if (req.user?.role !== 'seeker') {
+                return res.status(403).send({ message: 'forbidden access' })
+            }
+            next();
+        }
+
 
         //ticket related api get
-        app.get('/api/tickets', async (req, res) => {
+        app.get('/api/tickets', verifyToken, async (req, res) => {
             try {
                 const query = {};
 
@@ -332,7 +370,7 @@ async function run() {
         // ---------------------------
 
         // TICKET STATUS UPDATE (Admin Approve/Reject)
-        app.put('/api/tickets/:id/status', async (req, res) => {
+        app.put('/api/tickets/:id/status', logger, verifyToken, async (req, res) => {
             try {
                 const { id } = req.params;
                 const { status } = req.body;
