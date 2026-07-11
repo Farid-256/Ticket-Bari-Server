@@ -82,6 +82,15 @@ async function run() {
             next();
         }
 
+        // must be used after verifyToken middleware
+        const verifyAdmin = async (req, res, next) => {
+            if (req.user.role !== 'admin') {
+                return res.status(403).send({ message: 'forbidden access' })
+            }
+            next();
+        }
+
+
 
         //ticket related api get
         app.get('/api/tickets', verifyToken, async (req, res) => {
