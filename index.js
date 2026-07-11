@@ -23,6 +23,12 @@ app.get('/', (req, res) => {
     res.send('Hello form express')
 })
 
+//jwt4
+const logger = (req, res, next) => {
+    console.log('logger middleware logged', req.params);
+    next();
+}
+
 async function run() {
     try {
         await client.connect();
