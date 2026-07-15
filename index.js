@@ -29,10 +29,61 @@ const logger = (req, res, next) => {
     next();
 }
 
+const verifyToken = async (req, res, next) => {
+
+    //jwt7
+    const authHeader = req.headers?.authorization
+    if (!authHeader) {
+        return res.status(401).send({ message: 'unauthorized access' })
+    }
+
+    const token = authHeader.split(' ')[1]
+    if (!token) {
+        return res.status(401).send({ message: 'unauthorized access' })
+    }
+
+    const query = { token: token }
+    const session = await sessionCollection.findOne(query)
+
+    const userId = session.userId
+    const userQuery = {
+        _id: userId
+    }
+    const user = await userCollection.findOne(userQuery)
+
+    req.user = user
+    next()
+}
+
+// must be used after verifyToken middleware
+const verifyUser = async (req, res, next) => {
+    if (req.user?.role !== 'user') {
+        return res.status(403).send({ message: 'forbidden access' })
+    }
+    next();
+}
+
+// must be used after verifyToken middleware
+const verifyVendor = async (req, res, next) => {
+    if (req.user?.role !== 'vendor') {
+        return res.status(403).send({ message: 'forbidden access' })
+    }
+    next();
+}
+
+// must be used after verifyToken middleware
+const verifyAdmin = async (req, res, next) => {
+    if (req.user.role !== 'admin') {
+        return res.status(403).send({ message: 'forbidden access' })
+    }
+    next();
+}
+
 
 async function run() {
     try {
-        await client.connect();
+        // await client.connect();
+
         const database = client.db('ticketBari_db')
         const ticketCollection = database.collection('tickets')
         const bookingCollection = database.collection('bookings');
@@ -40,56 +91,6 @@ async function run() {
         const sessionCollection = database.collection('session')
 
         //jwt5
-        const verifyToken = async (req, res, next) => {
-
-            //jwt7
-            const authHeader = req.headers?.authorization
-            if (!authHeader) {
-                return res.status(401).send({ message: 'unauthorized access' })
-            }
-
-            const token = authHeader.split(' ')[1]
-            if (!token) {
-                return res.status(401).send({ message: 'unauthorized access' })
-            }
-
-            const query = { token: token }
-            const session = await sessionCollection.findOne(query)
-
-            const userId = session.userId
-            const userQuery = {
-                _id: userId
-            }
-            const user = await userCollection.findOne(userQuery)
-
-            req.user = user
-            next()
-        }
-
-        // must be used after verifyToken middleware
-        const verifyUser = async (req, res, next) => {
-            if (req.user?.role !== 'user') {
-                return res.status(403).send({ message: 'forbidden access' })
-            }
-            next();
-        }
-
-        // must be used after verifyToken middleware
-        const verifyVendor = async (req, res, next) => {
-            if (req.user?.role !== 'vendor') {
-                return res.status(403).send({ message: 'forbidden access' })
-            }
-            next();
-        }
-
-        // must be used after verifyToken middleware
-        const verifyAdmin = async (req, res, next) => {
-            if (req.user.role !== 'admin') {
-                return res.status(403).send({ message: 'forbidden access' })
-            }
-            next();
-        }
-
 
         // -------------------------------------------------------------------------------------
         //ticket related api get
@@ -97,7 +98,7 @@ async function run() {
             try {
                 const query = { status: 'approved' }; // ডিফল্ট শুধু approved
 
-                
+
                 if (req.query.fromLocation) {
                     query.fromLocation = { $regex: req.query.fromLocation, $options: 'i' };
                 }
@@ -107,7 +108,7 @@ async function run() {
                 if (req.query.transportType) {
                     query.transportType = req.query.transportType;
                 }
-           
+
                 if (req.query.status) {
                     query.status = req.query.status;
                 }
@@ -606,7 +607,7 @@ async function run() {
 
 
 
-        await client.db("admin").command({ ping: 1 });
+        // await client.db("admin").command({ ping: 1 });
         console.log("Pinged your deployment. You successfully connected to MongoDB!");
     } finally {
         // Ensures that the client will close when you finish/error
@@ -618,3 +619,5 @@ run().catch(console.dir);
 app.listen(port, () => {
     console.log(`App listening on port: ${port}`)
 })
+
+// module.exports = app
